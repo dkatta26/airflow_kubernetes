@@ -1,0 +1,32 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "airflow.fullname" . }}-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "airflow.fullname" . }}-rolebinding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "airflow.fullname" . }}-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "airflow.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

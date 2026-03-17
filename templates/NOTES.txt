@@ -1,0 +1,218 @@
+✅ Airflow Custom Chart v3 has been successfully deployed!
+
+Your release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+=============================================================================
+🎉 WHAT'S DEPLOYED
+=============================================================================
+
+✅ All 3 Original Issues Fixed:
+   • Database initialization: Automatic (no manual init needed)
+   • Service type: NodePort (accessible immediately)
+   • CSRF protection: Auto-generated secret key
+
+✅ DAG Storage Method:
+{{- if .Values.dags.gitSync.enabled }}
+   • Git-Sync: ENABLED
+   • Repository: {{ .Values.dags.gitSync.repo }}
+   • Branch: {{ .Values.dags.gitSync.branch }}
+   • Sync interval: {{ .Values.dags.gitSync.wait }} seconds
+{{- else if .Values.dags.nfs.enabled }}
+   • NFS: ENABLED
+   • Server: {{ .Values.dags.nfs.server }}
+   • Path: {{ .Values.dags.nfs.path }}
+{{- else if .Values.dags.hostPath.enabled }}
+   • HostPath: ENABLED
+   • Path: {{ .Values.dags.hostPath.path }}
+{{- else }}
+   • EmptyDir (ephemeral)
+{{- end }}
+
+=============================================================================
+🌐 ACCESS AIRFLOW WEB UI
+=============================================================================
+
+1. Get the NodePort:
+
+   export NODE_PORT=$(kubectl get svc {{ include "airflow.fullname" . }}-webserver -n {{ .Release.Namespace }} -o jsonpath='{.spec.ports[0].nodePort}')
+   echo "NodePort: $NODE_PORT"
+
+2. Get your server IP:
+
+   export SERVER_IP=$(hostname -I | awk '{print $1}')
+   echo "Server IP: $SERVER_IP"
+
+3. Open firewall (if needed):
+
+   sudo firewall-cmd --permanent --add-port=$NODE_PORT/tcp
+   sudo firewall-cmd --reload
+
+4. Access Airflow:
+
+   echo "http://$SERVER_IP:$NODE_PORT"
+
+   Or use hostname:
+   echo "http://$(hostname):$NODE_PORT"
+
+=============================================================================
+🔐 LOGIN CREDENTIALS
+=============================================================================
+
+Username: {{ .Values.webserver.defaultUser.username }}
+Password: {{ .Values.webserver.defaultUser.password }}
+
+⚠️  IMPORTANT: Change the default password immediately!
+
+kubectl exec deployment/{{ include "airflow.fullname" . }}-scheduler -n {{ .Release.Namespace }} -- \
+  airflow users create \
+    --username your-username \
+    --firstname Your \
+    --lastname Name \
+    --role Admin \
+    --email your@email.com \
+    --password YOUR_SECURE_PASSWORD
+
+=============================================================================
+📤 MANAGING DAGS
+=============================================================================
+
+{{- if .Values.dags.gitSync.enabled }}
+
+Git-Sync is ENABLED:
+
+1. Edit DAGs in your Git repository:
+   cd ~/airflow-dags
+   vi my_dag.py
+   git add . && git commit -m "Update DAG" && git push
+
+2. Wait {{ .Values.dags.gitSync.wait }} seconds for sync
+
+3. Check DAG appears:
+   kubectl exec deployment/{{ include "airflow.fullname" . }}-scheduler -n {{ .Release.Namespace }} -- \
+     airflow dags list
+
+4. View git-sync logs:
+   kubectl logs deployment/{{ include "airflow.fullname" . }}-scheduler -n {{ .Release.Namespace }} -c git-sync
+
+{{- else if .Values.dags.nfs.enabled }}
+
+NFS is ENABLED:
+
+1. Edit DAGs on NFS server:
+   # On NFS server ({{ .Values.dags.nfs.server }}):
+   vi {{ .Values.dags.nfs.path }}/my_dag.py
+
+2. DAG appears in Airflow within 60 seconds
+
+3. Check DAG:
+   kubectl exec deployment/{{ include "airflow.fullname" . }}-scheduler -n {{ .Release.Namespace }} -- \
+     airflow dags list
+
+{{- else }}
+
+To add DAGs, copy them to scheduler pod:
+
+SCHEDULER_POD=$(kubectl get pod -n {{ .Release.Namespace }} -l component=scheduler -o jsonpath='{.items[0].metadata.name}')
+kubectl cp my_dag.py {{ .Release.Namespace }}/$SCHEDULER_POD:/opt/airflow/dags/
+
+{{- end }}
+
+=============================================================================
+📊 DEPLOYMENT SUMMARY
+=============================================================================
+
+Components:
+  • Scheduler:  {{ .Values.scheduler.replicas }} replica(s)
+  • Webserver:  {{ .Values.webserver.replicas }} replica(s)
+  {{- if .Values.workers.enabled }}
+  • Workers:    {{ .Values.workers.replicas }} replica(s)
+  {{- else }}
+  • Workers:    (Kubernetes Executor - task pods created per task)
+  {{- end }}
+  • Triggerer:  {{ .Values.triggerer.replicas }} replica(s)
+  {{- if .Values.redis.enabled }}
+  • Redis:      1 replica
+  {{- end }}
+
+Image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+Database: {{ .Values.postgresql.host }}:{{ .Values.postgresql.port }}/{{ .Values.postgresql.database }}
+Executor: {{ .Values.airflow.executor }}
+
+=============================================================================
+🧪 VERIFY DEPLOYMENT
+=============================================================================
+
+# Check all pods
+kubectl get pods -n {{ .Release.Namespace }}
+
+# Check database connection
+kubectl exec deployment/{{ include "airflow.fullname" . }}-scheduler -n {{ .Release.Namespace }} -- \
+  airflow db check
+
+{{- if eq .Values.airflow.executor "CeleryExecutor" }}
+# Check Celery workers
+kubectl exec deployment/{{ include "airflow.fullname" . }}-scheduler -n {{ .Release.Namespace }} -- \
+  airflow celery inspect active
+{{- else if eq .Values.airflow.executor "KubernetesExecutor" }}
+# Check Kubernetes Executor task pods (created when tasks run)
+kubectl get pods -n {{ .Release.Namespace }}
+{{- end }}
+
+# View scheduler logs
+kubectl logs deployment/{{ include "airflow.fullname" . }}-scheduler -n {{ .Release.Namespace }}
+
+=============================================================================
+🔄 SWITCHING DAG STORAGE METHODS
+=============================================================================
+
+To switch between Git-Sync and NFS:
+
+1. Edit values.yaml:
+   # Turn off current method
+   # Turn on desired method
+
+2. Upgrade:
+   helm upgrade {{ .Release.Name }} ./airflow-custom-chart-v3 -n {{ .Release.Namespace }}
+
+Example: Switch to Git-Sync:
+  dags:
+    gitSync:
+      enabled: true
+      repo: "https://github.com/your-org/airflow-dags.git"
+    nfs:
+      enabled: false
+
+Example: Switch to NFS:
+  dags:
+    gitSync:
+      enabled: false
+    nfs:
+      enabled: true
+      server: "nfs-server-ip"
+      path: "/exports/airflow/dags"
+
+=============================================================================
+📚 USEFUL COMMANDS
+=============================================================================
+
+# Scale workers
+helm upgrade {{ .Release.Name }} ./airflow-custom-chart-v3 -n {{ .Release.Namespace }} --set workers.replicas=5
+
+# View release history
+helm history {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+# Rollback
+helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+# Uninstall
+helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+=============================================================================
+🎉 Enjoy your Airflow deployment!
+=============================================================================
+
+For detailed documentation, see:
+- README.md
+- COMPLETE_DAG_GUIDE.md
+- VALUES_EXAMPLES.md

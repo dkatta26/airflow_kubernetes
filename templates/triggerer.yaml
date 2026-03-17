@@ -1,0 +1,33 @@
+{{- if .Values.triggerer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "airflow.fullname" . }}-triggerer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+    component: triggerer
+spec:
+  replicas: {{ .Values.triggerer.replicas }}
+  selector:
+    matchLabels:
+      {{- include "airflow.selectorLabels" . | nindent 6 }}
+      component: triggerer
+  template:
+    metadata:
+      labels:
+        {{- include "airflow.selectorLabels" . | nindent 8 }}
+        component: triggerer
+    spec:
+      serviceAccountName: {{ include "airflow.serviceAccountName" . }}
+      containers:
+      - name: triggerer
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["airflow", "triggerer"]
+        envFrom:
+        - configMapRef:
+            name: {{ include "airflow.fullname" . }}-config
+        resources:
+          {{- toYaml .Values.triggerer.resources | nindent 10 }}
+{{- end }}

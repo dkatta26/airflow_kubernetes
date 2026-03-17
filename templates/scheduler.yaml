@@ -1,0 +1,58 @@
+{{- if .Values.scheduler.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "airflow.fullname" . }}-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+    component: scheduler
+spec:
+  replicas: {{ .Values.scheduler.replicas }}
+  selector:
+    matchLabels:
+      {{- include "airflow.selectorLabels" . | nindent 6 }}
+      component: scheduler
+  template:
+    metadata:
+      labels:
+        {{- include "airflow.selectorLabels" . | nindent 8 }}
+        component: scheduler
+    spec:
+      serviceAccountName: {{ include "airflow.serviceAccountName" . }}
+      containers:
+      - name: scheduler
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["airflow", "scheduler"]
+        envFrom:
+        - configMapRef:
+            name: {{ include "airflow.fullname" . }}-config
+        volumeMounts:
+        {{- include "airflow.dagsVolumeMount" . | nindent 8 }}
+        {{- include "airflow.logsVolumeMount" . | nindent 8 }}
+        resources:
+          {{- toYaml .Values.scheduler.resources | nindent 10 }}
+        {{- if .Values.scheduler.livenessProbe.enabled }}
+        livenessProbe:
+          exec:
+            command:
+              - bash
+              - -c
+              - pgrep -f 'airflow scheduler' || exit 1
+          initialDelaySeconds: {{ .Values.scheduler.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.scheduler.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.scheduler.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.scheduler.livenessProbe.failureThreshold }}
+        {{- end }}
+      {{- include "airflow.gitSyncContainer" . | nindent 6 }}
+      volumes:
+      {{- if .Values.dags.gitSync.enabled }}
+      - name: dags
+        emptyDir: {}
+      {{- else }}
+      {{- include "airflow.dagsVolume" . | nindent 6 }}
+      {{- end }}
+      {{- include "airflow.logsVolume" . | nindent 6 }}
+      {{- include "airflow.gitSyncVolume" . | nindent 6 }}
+{{- end }}

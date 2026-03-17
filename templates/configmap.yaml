@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "airflow.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+data:
+  AIRFLOW__CORE__EXECUTOR: {{ .Values.airflow.executor | quote }}
+  AIRFLOW__CORE__LOAD_EXAMPLES: {{ .Values.airflow.config.AIRFLOW__CORE__LOAD_EXAMPLES | quote }}
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: {{ .Values.airflow.config.AIRFLOW__WEBSERVER__EXPOSE_CONFIG | quote }}
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: {{ .Values.airflow.config.AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION | quote }}
+  AIRFLOW__WEBSERVER__SECRET_KEY: {{ include "airflow.webserverSecretKey" . | quote }}
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: {{ include "airflow.postgresql.connection" . | quote }}
+  {{- if eq .Values.airflow.executor "CeleryExecutor" }}
+  AIRFLOW__CELERY__BROKER_URL: {{ include "airflow.redis.connection" . | quote }}
+  AIRFLOW__CELERY__RESULT_BACKEND: {{ printf "db+%s" (include "airflow.postgresql.connection" .) | quote }}
+  {{- end }}
+  {{- if eq .Values.airflow.executor "KubernetesExecutor" }}
+  AIRFLOW__KUBERNETES_EXECUTOR__NAMESPACE: {{ default .Release.Namespace .Values.airflow.kubernetesExecutor.namespace | quote }}
+  AIRFLOW__KUBERNETES_EXECUTOR__WORKER_CONTAINER_REPOSITORY: {{ default .Values.image.repository .Values.airflow.kubernetesExecutor.workerContainerRepository | quote }}
+  AIRFLOW__KUBERNETES_EXECUTOR__WORKER_CONTAINER_TAG: {{ default .Values.image.tag .Values.airflow.kubernetesExecutor.workerContainerTag | quote }}
+  AIRFLOW__KUBERNETES_EXECUTOR__DELETE_WORKER_PODS: {{ .Values.airflow.kubernetesExecutor.deleteWorkerPods | quote }}
+  AIRFLOW__KUBERNETES_EXECUTOR__DELETE_WORKER_PODS_ON_FAILURE: {{ .Values.airflow.kubernetesExecutor.deleteWorkerPodsOnFailure | quote }}
+  AIRFLOW__KUBERNETES_EXECUTOR__WORKER_PODS_CREATION_BATCH_SIZE: {{ .Values.airflow.kubernetesExecutor.workerPodsCreationBatchSize | quote }}
+  {{- end }}

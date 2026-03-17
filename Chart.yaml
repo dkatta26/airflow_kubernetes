@@ -1,0 +1,15 @@
+apiVersion: v2
+name: airflow-custom
+description: Custom Airflow Helm Chart - Fixed for First-Time Installation
+type: application
+version: 1.0.1
+appVersion: "2.8.3"
+keywords:
+  - airflow
+  - workflow
+  - scheduler
+  - celery
+home: https://airflow.apache.org/
+maintainers:
+  - name: Your Team
+    email: your-team@example.com
