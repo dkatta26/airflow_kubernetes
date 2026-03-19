@@ -38,6 +38,10 @@ spec:
             cpu: 100m
             memory: 128Mi
       {{- end }}
+      {{- if .Values.airflow.externalAirflowCfg.enabled }}
+      volumes:
+      {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
+      {{- end }}
       containers:
       - name: db-init
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -74,9 +78,15 @@ spec:
             echo "========================================="
             echo "✅ Database initialization complete!"
             echo "========================================="
+        {{- if .Values.airflow.useConfigMapForEnv }}
         envFrom:
         - configMapRef:
             name: {{ include "airflow.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.airflow.externalAirflowCfg.enabled }}
+        volumeMounts:
+        {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
+        {{- end }}
         resources:
           {{- toYaml .Values.dbInit.resources | nindent 10 }}
 {{- end }}

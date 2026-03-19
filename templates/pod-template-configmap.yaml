@@ -1,0 +1,13 @@
+{{- if and (eq .Values.airflow.executor "KubernetesExecutor") .Values.airflow.kubernetesExecutor.podTemplate.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "airflow.fullname" . }}-pod-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+    component: pod-template
+data:
+  pod_template.yaml: |
+{{ include "airflow.kubernetesExecutorPodTemplate" . | nindent 4 }}
+{{- end }}

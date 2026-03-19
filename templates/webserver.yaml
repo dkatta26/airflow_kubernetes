@@ -29,12 +29,17 @@ spec:
         - name: http
           containerPort: {{ .Values.webserver.service.port }}
           protocol: TCP
+        {{- if .Values.airflow.useConfigMapForEnv }}
         envFrom:
         - configMapRef:
             name: {{ include "airflow.fullname" . }}-config
+        {{- end }}
         volumeMounts:
         {{- include "airflow.dagsVolumeMount" . | nindent 8 }}
         {{- include "airflow.logsVolumeMount" . | nindent 8 }}
+        {{- if .Values.airflow.externalAirflowCfg.enabled }}
+        {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
+        {{- end }}
         resources:
           {{- toYaml .Values.webserver.resources | nindent 10 }}
         {{- if .Values.webserver.livenessProbe.enabled }}
@@ -67,6 +72,9 @@ spec:
       {{- end }}
       {{- include "airflow.logsVolume" . | nindent 6 }}
       {{- include "airflow.gitSyncVolume" . | nindent 6 }}
+      {{- if .Values.airflow.externalAirflowCfg.enabled }}
+      {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

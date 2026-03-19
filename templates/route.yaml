@@ -1,0 +1,31 @@
+{{- if and .Values.webserver.enabled .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "airflow.fullname" . }}-webserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+    component: webserver
+  {{- with .Values.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.route.host }}
+  host: {{ .Values.route.host | quote }}
+  {{- end }}
+  path: {{ .Values.route.path | default "/" | quote }}
+  port:
+    targetPort: {{ .Values.route.targetPort | default "http" | quote }}
+  {{- if .Values.route.tls.enabled }}
+  tls:
+    termination: {{ .Values.route.tls.termination | quote }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "airflow.fullname" . }}-webserver
+    weight: 100
+  wildcardPolicy: None
+{{- end }}

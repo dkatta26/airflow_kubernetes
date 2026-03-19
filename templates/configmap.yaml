@@ -1,3 +1,4 @@
+{{- if .Values.airflow.useConfigMapForEnv }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,6 +18,9 @@ data:
   AIRFLOW__CELERY__RESULT_BACKEND: {{ printf "db+%s" (include "airflow.postgresql.connection" .) | quote }}
   {{- end }}
   {{- if eq .Values.airflow.executor "KubernetesExecutor" }}
+  {{- if .Values.airflow.kubernetesExecutor.podTemplate.enabled }}
+  AIRFLOW__KUBERNETES_EXECUTOR__POD_TEMPLATE_FILE: "/opt/airflow/config/pod_template.yaml"
+  {{- end }}
   AIRFLOW__KUBERNETES_EXECUTOR__NAMESPACE: {{ default .Release.Namespace .Values.airflow.kubernetesExecutor.namespace | quote }}
   AIRFLOW__KUBERNETES_EXECUTOR__WORKER_CONTAINER_REPOSITORY: {{ default .Values.image.repository .Values.airflow.kubernetesExecutor.workerContainerRepository | quote }}
   AIRFLOW__KUBERNETES_EXECUTOR__WORKER_CONTAINER_TAG: {{ default .Values.image.tag .Values.airflow.kubernetesExecutor.workerContainerTag | quote }}
@@ -24,3 +28,4 @@ data:
   AIRFLOW__KUBERNETES_EXECUTOR__DELETE_WORKER_PODS_ON_FAILURE: {{ .Values.airflow.kubernetesExecutor.deleteWorkerPodsOnFailure | quote }}
   AIRFLOW__KUBERNETES_EXECUTOR__WORKER_PODS_CREATION_BATCH_SIZE: {{ .Values.airflow.kubernetesExecutor.workerPodsCreationBatchSize | quote }}
   {{- end }}
+{{- end }}

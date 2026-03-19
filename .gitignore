@@ -1,0 +1,15 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets (never commit real values)
+*-secret*.yaml
+**/values-local.yaml
+**/values-prod.yaml
+
+# Helm
+*.tgz
+charts/*.tgz

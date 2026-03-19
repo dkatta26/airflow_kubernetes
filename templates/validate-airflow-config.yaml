@@ -1,0 +1,3 @@
+{{- if and (not .Values.airflow.useConfigMapForEnv) (not .Values.airflow.externalAirflowCfg.enabled) }}
+{{- fail "airflow: useConfigMapForEnv is false but externalAirflowCfg.enabled is false. Either set useConfigMapForEnv: true, or enable externalAirflowCfg with existingClaim (NAS/PVC airflow.cfg). See docs/EXTERNAL_AIRFLOW_CFG.md" }}
+{{- end }}

@@ -23,6 +23,8 @@ postgresql:
   username: airflow
   password: airflow123
   database: airflow
+  # Managed Postgres / TLS: e.g. require | verify-full | disable (empty = omit ?sslmode from URL)
+  sslmode: ""
 
 # =============================================================================
 # REDIS CONFIGURATION (Only needed for CeleryExecutor)
@@ -46,6 +48,18 @@ redis:
 # =============================================================================
 airflow:
   executor: KubernetesExecutor  # Options: LocalExecutor | CeleryExecutor | KubernetesExecutor
+
+  # true = load settings from Helm-generated ConfigMap (AIRFLOW__… env). false = use airflow.cfg only from NAS mount (see externalAirflowCfg).
+  # Env vars override airflow.cfg when both are present.
+  useConfigMapForEnv: true
+
+  # Mount airflow.cfg from a PVC backed by NAS/NFS. Set useConfigMapForEnv: false for cfg-only mode (see docs/EXTERNAL_AIRFLOW_CFG.md).
+  externalAirflowCfg:
+    enabled: false
+    existingClaim: ""   # PVC name (must exist in the release namespace)
+    subPath: airflow.cfg
+    mountPath: /opt/airflow/airflow.cfg
+
   config:
     AIRFLOW__CORE__EXECUTOR: "KubernetesExecutor"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -62,6 +76,9 @@ airflow:
     deleteWorkerPods: true
     deleteWorkerPodsOnFailure: false
     workerPodsCreationBatchSize: "4"  # Increase for better throughput
+    # Task pods need envFrom → same ConfigMap as scheduler (Postgres, etc.); see docs/K8S_WORKER_PODS_CONFIGMAP.md
+    podTemplate:
+      enabled: true
 
 # =============================================================================
 # DAG STORAGE CONFIGURATION
@@ -174,9 +191,9 @@ webserver:
   enabled: true
   replicas: 2
   service:
-    type: NodePort
+    type: ClusterIP   # Use NodePort if you need direct node access and namespace allows it
     port: 8080
-    nodePort: 30080  # Fixed port - access via http://<any-node-ip>:30080
+    # nodePort: 30080  # Only used when type: NodePort
   resources:
     limits:
       cpu: 1000m
@@ -200,6 +217,24 @@ webserver:
     username: admin
     password: admin
     email: admin@example.com
+
+# =============================================================================
+# OPENSHIFT ROUTE (optional — exposes webserver; use with ClusterIP Service)
+# =============================================================================
+# Same pattern as Trino: Route -> Service (ClusterIP) -> Pods.
+# Set host to your apps domain, e.g. bdp-airflow-qa.apps.ap3-ocp4-qa.pncint.net
+# If host is empty, OpenShift assigns a hostname (see: oc get route).
+route:
+  enabled: false
+  host: ""   # e.g. "bdp-airflow-qa.apps.ap3-ocp4-qa.pncint.net"
+  path: /
+  # Must match the webserver Service port name (see templates/webserver.yaml) or numeric port
+  targetPort: http
+  annotations: {}
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
 
 # =============================================================================
 # WORKER CONFIGURATION (Celery workers - only used when executor is CeleryExecutor)

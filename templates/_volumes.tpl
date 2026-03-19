@@ -107,3 +107,23 @@ Git-Sync Volume for SSH key
     defaultMode: 0400
 {{- end }}
 {{- end }}
+
+{{/*
+NAS / PVC: pre-uploaded airflow.cfg (use with airflow.useConfigMapForEnv: false for cfg-only)
+*/}}
+{{- define "airflow.externalAirflowCfgVolume" -}}
+{{- if .Values.airflow.externalAirflowCfg.enabled }}
+- name: external-airflow-cfg
+  persistentVolumeClaim:
+    claimName: {{ .Values.airflow.externalAirflowCfg.existingClaim | required "airflow.externalAirflowCfg.existingClaim is required when externalAirflowCfg.enabled is true" }}
+{{- end }}
+{{- end }}
+
+{{- define "airflow.externalAirflowCfgVolumeMount" -}}
+{{- if .Values.airflow.externalAirflowCfg.enabled }}
+- name: external-airflow-cfg
+  mountPath: {{ .Values.airflow.externalAirflowCfg.mountPath | default "/opt/airflow/airflow.cfg" | quote }}
+  subPath: {{ .Values.airflow.externalAirflowCfg.subPath | default "airflow.cfg" | quote }}
+  readOnly: true
+{{- end }}
+{{- end }}

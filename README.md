@@ -2,6 +2,31 @@
 
 Custom Helm chart for Apache Airflow with flexible DAG storage options.
 
+**Repository:** [github.com/dkatta26/airflow_kubernetes](https://github.com/dkatta26/airflow_kubernetes)
+
+```bash
+git clone https://github.com/dkatta26/airflow_kubernetes.git
+cd airflow_kubernetes
+```
+
+### Push this chart to your new repository (first time)
+
+From your **local** project folder (e.g. `airflow-custom-chart-v3`):
+
+```bash
+cd /path/to/airflow-custom-chart-v3
+
+git init   # skip if .git already exists
+git add .
+git commit -m "Initial commit: Airflow Helm chart"
+
+git branch -M main
+git remote add origin https://github.com/dkatta26/airflow_kubernetes.git
+git push -u origin main
+```
+
+If GitHub shows an empty repo with different default branch (`master`), use `git push -u origin main` or match their default. If the remote already has a README from the GitHub UI, use `git pull origin main --allow-unrelated-histories` once, then push.
+
 ## Features
 
 ✅ **Fixed Issues:**

@@ -49,10 +49,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
-PostgreSQL connection string
+PostgreSQL connection string (optional ?sslmode= for TLS)
 */}}
 {{- define "airflow.postgresql.connection" -}}
-{{- printf "postgresql://%s:%s@%s:%d/%s" .Values.postgresql.username .Values.postgresql.password .Values.postgresql.host (.Values.postgresql.port | int) .Values.postgresql.database }}
+{{- $url := printf "postgresql://%s:%s@%s:%d/%s" .Values.postgresql.username .Values.postgresql.password .Values.postgresql.host (.Values.postgresql.port | int) .Values.postgresql.database }}
+{{- if .Values.postgresql.sslmode }}
+{{- printf "%s?sslmode=%s" $url .Values.postgresql.sslmode }}
+{{- else }}
+{{- $url }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -70,6 +75,50 @@ Service account name
 {{- default (include "airflow.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+KubernetesExecutor task pod template: envFrom → main ConfigMap so task pods get Postgres + same AIRFLOW__ vars as scheduler.
+*/}}
+{{- define "airflow.kubernetesExecutorPodTemplate" -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: placeholder-name
+spec:
+  restartPolicy: Never
+  serviceAccountName: {{ include "airflow.serviceAccountName" . }}
+  containers:
+  - name: base
+    image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+    imagePullPolicy: {{ .Values.image.pullPolicy }}
+    {{- if .Values.airflow.useConfigMapForEnv }}
+    envFrom:
+    - configMapRef:
+        name: {{ include "airflow.fullname" . }}-config
+    {{- end }}
+    env:
+    - name: AIRFLOW__CORE__EXECUTOR
+      value: LocalExecutor
+    volumeMounts:
+    - name: dags
+      mountPath: /opt/airflow/dags
+    - name: logs
+      mountPath: /opt/airflow/logs
+{{- if .Values.airflow.externalAirflowCfg.enabled }}
+{{ include "airflow.externalAirflowCfgVolumeMount" . | nindent 4 }}
+{{- end }}
+  volumes:
+{{- if .Values.dags.gitSync.enabled }}
+  - name: dags
+    emptyDir: {}
+{{- else }}
+{{ include "airflow.dagsVolume" . | nindent 2 }}
+{{- end }}
+{{ include "airflow.logsVolume" . | nindent 2 }}
+{{- if .Values.airflow.externalAirflowCfg.enabled }}
+{{ include "airflow.externalAirflowCfgVolume" . | nindent 2 }}
 {{- end }}
 {{- end }}
 
