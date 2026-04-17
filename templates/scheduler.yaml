@@ -36,6 +36,7 @@ spec:
         {{- if .Values.airflow.externalAirflowCfg.enabled }}
         {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
         {{- end }}
+        {{- include "airflow.nasScriptsVolumeMount" . | nindent 8 }}
         {{- if and (eq .Values.airflow.executor "KubernetesExecutor") .Values.airflow.kubernetesExecutor.podTemplate.enabled }}
         - name: k8s-executor-pod-template
           mountPath: /opt/airflow/config/pod_template.yaml
@@ -74,4 +75,5 @@ spec:
       {{- if .Values.airflow.externalAirflowCfg.enabled }}
       {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
       {{- end }}
+      {{- include "airflow.nasScriptsVolume" . | nindent 6 }}
 {{- end }}

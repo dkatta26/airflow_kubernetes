@@ -16,7 +16,7 @@ image:
 postgresql:
   enabled: true
   external: true
-  
+
   # ⚠️ CHANGE THIS to your host machine IP!
   host: "192.168.1.100"
   port: 5432
@@ -60,19 +60,19 @@ airflow:
     subPath: airflow.cfg
     mountPath: /opt/airflow/airflow.cfg
 
+  # All AIRFLOW__* env vars injected into the ConfigMap.
+  # Add any Airflow setting here — no template changes needed.
   config:
-    AIRFLOW__CORE__EXECUTOR: "KubernetesExecutor"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__TEST_CONNECTION: "Enabled"
 
   # Kubernetes Executor settings (used only when executor is KubernetesExecutor)
   kubernetesExecutor:
-    # Namespace where task pods are created (default: same as release)
-    namespace: ""  # Leave empty to use release namespace
-    # Worker image (defaults to main airflow image if not set)
-    workerContainerRepository: ""  # e.g. "dkatta26/diveshkattaregistry"
-    workerContainerTag: ""         # e.g. "2.8.3"
+    namespace: ""                 # empty = release namespace
+    workerContainerRepository: "" # empty = image.repository
+    workerContainerTag: ""        # empty = image.tag
     deleteWorkerPods: true
     deleteWorkerPodsOnFailure: false
     workerPodsCreationBatchSize: "4"  # Increase for better throughput
@@ -91,24 +91,24 @@ dags:
   # -----------------------------------------------------------------------------
   gitSync:
     enabled: false  # ← Set to 'true' to use Git-Sync
-    
+
     # For public repositories (HTTPS):
     repo: "https://github.com/your-org/airflow-dags.git"
     branch: "main"
-    
+
     # For private repositories (SSH) - uncomment and configure:
     # repo: "git@github.com:your-org/airflow-dags.git"
     # sshKeySecret: "airflow-git-ssh-key"  # Create secret first
-    
+
     # Git-sync settings:
     rev: "HEAD"
     depth: 1
     wait: 60  # Sync interval in seconds
     maxFailures: 3
-    
+
     # Subpath in repo (if DAGs are not in root):
     subPath: ""  # e.g., "dags/" if your DAGs are in a subdirectory
-    
+
     # Resources for git-sync sidecar:
     resources:
       limits:
@@ -117,52 +117,76 @@ dags:
       requests:
         cpu: 50m
         memory: 64Mi
-  
+
   # -----------------------------------------------------------------------------
   # METHOD 2: NFS (Recommended for Multi-Node + Filesystem Access)
   # Easy to switch on/off - just change 'enabled: true/false'
   # -----------------------------------------------------------------------------
   nfs:
     enabled: false  # ← Set to 'true' to use NFS
-    
+
     server: "nfs-server.example.com"  # ← Your NFS server hostname/IP
     path: "/exports/airflow/dags"     # ← Path on NFS server
-    
+
     # Optional: NFS mount options
     mountOptions:
       - nfsvers=4
       - rsize=1048576
       - wsize=1048576
-  
+
   # -----------------------------------------------------------------------------
   # METHOD 3: HostPath (Only for Single-Node Clusters)
   # -----------------------------------------------------------------------------
   hostPath:
     enabled: false  # ← Set to 'true' for single-node with hostPath
     path: "/opt/airflow/dags"  # Path on host machine
-  
+
   # -----------------------------------------------------------------------------
   # METHOD 4: Persistent Volume Claim (Advanced)
   # -----------------------------------------------------------------------------
   persistentVolumeClaim:
     enabled: false  # ← Set to 'true' to use existing PVC
     existingClaim: ""  # Name of your PVC (must support ReadWriteMany)
+    subPath: ""        # Optional: subfolder inside the PVC (e.g. "dags" if sharing PVC with logs)
 
 # =============================================================================
 # LOGS STORAGE CONFIGURATION
 # =============================================================================
+# ⚠️  With KubernetesExecutor, task pods are deleted after completion.
+#     If logs use emptyDir (default), they are LOST when the pod is deleted.
+#     Enable NFS or PVC below so logs survive pod deletion and remain readable
+#     in the Airflow UI.
+#
+# Choose ONE method. All Airflow components AND task pods share the same volume.
 logs:
-  # For multi-node, use NFS or leave as emptyDir
-  # emptyDir = logs lost on pod restart (usually acceptable)
-  
+  # METHOD 1: NFS (recommended for multi-node — logs persist after pod deletion)
   nfs:
     enabled: false  # ← Set to 'true' to store logs on NFS
     server: "nfs-server.example.com"
     path: "/exports/airflow/logs"
-  
+
+  # METHOD 2: Existing PVC (ReadWriteMany required for multi-node)
+  persistentVolumeClaim:
+    enabled: false
+    existingClaim: ""  # PVC name (must exist in the release namespace)
+    subPath: ""        # Optional: subfolder inside the PVC (e.g. "logs" if sharing PVC with dags)
+
+  # METHOD 3: HostPath (single-node only)
   hostPath:
     enabled: false  # ← Set to 'true' for single-node
     path: "/opt/airflow/logs"
+
+  # Default: emptyDir — logs are lost when a pod is deleted (not suitable for KubernetesExecutor)
+
+# =============================================================================
+# NAS CUSTOM SCRIPTS PVC
+# Mounts a NAS-backed PVC at /opt/data across all components and task pods.
+# =============================================================================
+nasScripts:
+  enabled: false
+  existingClaim: ""   # PVC name (must exist in the release namespace)
+  mountPath: /opt/data
+  readOnly: true
 
 # =============================================================================
 # SCHEDULER CONFIGURATION
@@ -288,6 +312,35 @@ rbac:
   create: true
 
 # =============================================================================
+# WORKER POD CLEANUP
+# Periodic CronJob to delete completed/failed KubernetesExecutor task pods.
+# Set deleteWorkerPods: false above to keep pods around, then use this to
+# clean them up on a schedule so you have time to inspect logs.
+# =============================================================================
+workerCleanup:
+  enabled: false
+  schedule: "*/10 * * * *"  # every 10 minutes — adjust to taste
+  deleteSucceeded: true      # delete pods in Succeeded phase
+  deleteFailed: false        # set true to also delete Failed pods (useful after inspection)
+  # Optional: restrict deletion to pods with this label selector.
+  # Airflow 2.x tags task pods with dag_id, task_id etc.
+  # Example: "dag_id=my_dag" or leave empty to clean all completed pods in the namespace.
+  podLabelSelector: ""
+  image:
+    repository: bitnami/kubectl
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# =============================================================================
 # DATABASE INITIALIZATION
 # =============================================================================
 dbInit:
@@ -303,7 +356,7 @@ dbInit:
 # =============================================================================
 # EXAMPLES FOR DIFFERENT SCENARIOS
 # =============================================================================
-# 
+#
 # SCENARIO 1: Use Git-Sync with public repo
 # ------------------------------------------
 # dags:

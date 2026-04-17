@@ -30,14 +30,26 @@ spec:
         - configMapRef:
             name: {{ include "airflow.fullname" . }}-config
         {{- end }}
-        {{- if .Values.airflow.externalAirflowCfg.enabled }}
         volumeMounts:
+        {{- include "airflow.dagsVolumeMount" . | nindent 8 }}
+        {{- include "airflow.logsVolumeMount" . | nindent 8 }}
+        {{- if .Values.airflow.externalAirflowCfg.enabled }}
         {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
         {{- end }}
+        {{- include "airflow.nasScriptsVolumeMount" . | nindent 8 }}
         resources:
           {{- toYaml .Values.triggerer.resources | nindent 10 }}
-      {{- if .Values.airflow.externalAirflowCfg.enabled }}
       volumes:
+      {{- if .Values.dags.gitSync.enabled }}
+      - name: dags
+        emptyDir: {}
+      {{- else }}
+      {{- include "airflow.dagsVolume" . | nindent 6 }}
+      {{- end }}
+      {{- include "airflow.logsVolume" . | nindent 6 }}
+      {{- include "airflow.gitSyncVolume" . | nindent 6 }}
+      {{- if .Values.airflow.externalAirflowCfg.enabled }}
       {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
       {{- end }}
+      {{- include "airflow.nasScriptsVolume" . | nindent 6 }}
 {{- end }}

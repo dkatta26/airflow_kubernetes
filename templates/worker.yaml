@@ -40,6 +40,7 @@ spec:
         {{- if .Values.airflow.externalAirflowCfg.enabled }}
         {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
         {{- end }}
+        {{- include "airflow.nasScriptsVolumeMount" . | nindent 8 }}
         resources:
           {{- toYaml .Values.workers.resources | nindent 10 }}
         {{- if .Values.workers.livenessProbe.enabled }}
@@ -67,4 +68,5 @@ spec:
       {{- if .Values.airflow.externalAirflowCfg.enabled }}
       {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
       {{- end }}
+      {{- include "airflow.nasScriptsVolume" . | nindent 6 }}
 {{- end }}

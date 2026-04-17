@@ -1,0 +1,65 @@
+{{- if .Values.workerCleanup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "airflow.fullname" . }}-worker-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+    component: worker-cleanup
+spec:
+  schedule: {{ .Values.workerCleanup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.workerCleanup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.workerCleanup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "airflow.selectorLabels" . | nindent 12 }}
+            component: worker-cleanup
+        spec:
+          serviceAccountName: {{ include "airflow.serviceAccountName" . }}
+          restartPolicy: OnFailure
+          containers:
+          - name: worker-cleanup
+            image: "{{ .Values.workerCleanup.image.repository }}:{{ .Values.workerCleanup.image.tag }}"
+            imagePullPolicy: {{ .Values.workerCleanup.image.pullPolicy }}
+            command:
+            - /bin/sh
+            - -c
+            - |
+              NAMESPACE="{{ .Release.Namespace }}"
+              LABEL_SELECTOR="{{ .Values.workerCleanup.podLabelSelector }}"
+
+              if [ -n "$LABEL_SELECTOR" ]; then
+                SELECTOR="-l $LABEL_SELECTOR"
+              else
+                SELECTOR=""
+              fi
+
+              {{- if .Values.workerCleanup.deleteSucceeded }}
+              echo "Deleting Succeeded worker pods..."
+              kubectl delete pods \
+                --field-selector=status.phase==Succeeded \
+                $SELECTOR \
+                -n "$NAMESPACE" \
+                --ignore-not-found=true
+              {{- end }}
+
+              {{- if .Values.workerCleanup.deleteFailed }}
+              echo "Deleting Failed worker pods..."
+              kubectl delete pods \
+                --field-selector=status.phase==Failed \
+                $SELECTOR \
+                -n "$NAMESPACE" \
+                --ignore-not-found=true
+              {{- end }}
+
+              echo "Cleanup complete."
+            {{- if .Values.workerCleanup.resources }}
+            resources:
+              {{- toYaml .Values.workerCleanup.resources | nindent 14 }}
+            {{- end }}
+{{- end }}

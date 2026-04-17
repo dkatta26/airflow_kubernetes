@@ -1,0 +1,421 @@
+diff --git a/templates/_helpers.tpl b/templates/_helpers.tpl
+index df8af28..ffae374 100644
+--- a/templates/_helpers.tpl
++++ b/templates/_helpers.tpl
+@@ -102,13 +102,12 @@ spec:
+     - name: AIRFLOW__CORE__EXECUTOR
+       value: LocalExecutor
+     volumeMounts:
+-    - name: dags
+-      mountPath: /opt/airflow/dags
+-    - name: logs
+-      mountPath: /opt/airflow/logs
++{{ include "airflow.dagsVolumeMount" . | nindent 4 }}
++{{ include "airflow.logsVolumeMount" . | nindent 4 }}
+ {{- if .Values.airflow.externalAirflowCfg.enabled }}
+ {{ include "airflow.externalAirflowCfgVolumeMount" . | nindent 4 }}
+ {{- end }}
++{{ include "airflow.nasScriptsVolumeMount" . | nindent 4 }}
+   volumes:
+ {{- if .Values.dags.gitSync.enabled }}
+   - name: dags
+@@ -120,6 +119,7 @@ spec:
+ {{- if .Values.airflow.externalAirflowCfg.enabled }}
+ {{ include "airflow.externalAirflowCfgVolume" . | nindent 2 }}
+ {{- end }}
++{{ include "airflow.nasScriptsVolume" . | nindent 2 }}
+ {{- end }}
+ 
+ {{/*
+diff --git a/templates/_volumes.tpl b/templates/_volumes.tpl
+index d06f4c1..bec9fc5 100644
+--- a/templates/_volumes.tpl
++++ b/templates/_volumes.tpl
+@@ -30,6 +30,9 @@ DAG Volume Mount
+ {{- define "airflow.dagsVolumeMount" -}}
+ - name: dags
+   mountPath: /opt/airflow/dags
++  {{- if and .Values.dags.persistentVolumeClaim.enabled .Values.dags.persistentVolumeClaim.subPath }}
++  subPath: {{ .Values.dags.persistentVolumeClaim.subPath }}
++  {{- end }}
+ {{- end }}
+ 
+ {{/*
+@@ -41,6 +44,15 @@ Logs Volume Configuration
+   hostPath:
+     path: {{ .Values.logs.hostPath.path }}
+     type: DirectoryOrCreate
++{{- else if .Values.logs.nfs.enabled }}
++- name: logs
++  nfs:
++    server: {{ .Values.logs.nfs.server }}
++    path: {{ .Values.logs.nfs.path }}
++{{- else if .Values.logs.persistentVolumeClaim.enabled }}
++- name: logs
++  persistentVolumeClaim:
++    claimName: {{ .Values.logs.persistentVolumeClaim.existingClaim | required "logs.persistentVolumeClaim.existingClaim is required when logs.persistentVolumeClaim.enabled is true" }}
+ {{- else }}
+ - name: logs
+   emptyDir: {}
+@@ -53,6 +65,9 @@ Logs Volume Mount
+ {{- define "airflow.logsVolumeMount" -}}
+ - name: logs
+   mountPath: /opt/airflow/logs
++  {{- if and .Values.logs.persistentVolumeClaim.enabled .Values.logs.persistentVolumeClaim.subPath }}
++  subPath: {{ .Values.logs.persistentVolumeClaim.subPath }}
++  {{- end }}
+ {{- end }}
+ 
+ {{/*
+@@ -127,3 +142,22 @@ NAS / PVC: pre-uploaded airflow.cfg (use with airflow.useConfigMapForEnv: false
+   readOnly: true
+ {{- end }}
+ {{- end }}
++
++{{/*
++NAS custom scripts PVC
++*/}}
++{{- define "airflow.nasScriptsVolume" -}}
++{{- if .Values.nasScripts.enabled }}
++- name: nas-scripts
++  persistentVolumeClaim:
++    claimName: {{ .Values.nasScripts.existingClaim | required "nasScripts.existingClaim is required when nasScripts.enabled is true" }}
++{{- end }}
++{{- end }}
++
++{{- define "airflow.nasScriptsVolumeMount" -}}
++{{- if .Values.nasScripts.enabled }}
++- name: nas-scripts
++  mountPath: {{ .Values.nasScripts.mountPath | default "/opt/data" | quote }}
++  readOnly: {{ .Values.nasScripts.readOnly | default true }}
++{{- end }}
++{{- end }}
+diff --git a/templates/configmap.yaml b/templates/configmap.yaml
+index 949f1a2..0b01465 100644
+--- a/templates/configmap.yaml
++++ b/templates/configmap.yaml
+@@ -7,25 +7,28 @@ metadata:
+   labels:
+     {{- include "airflow.labels" . | nindent 4 }}
+ data:
++  # Computed / executor-level keys
+   AIRFLOW__CORE__EXECUTOR: {{ .Values.airflow.executor | quote }}
+-  AIRFLOW__CORE__LOAD_EXAMPLES: {{ .Values.airflow.config.AIRFLOW__CORE__LOAD_EXAMPLES | quote }}
+-  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: {{ .Values.airflow.config.AIRFLOW__WEBSERVER__EXPOSE_CONFIG | quote }}
+-  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: {{ .Values.airflow.config.AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION | quote }}
+   AIRFLOW__WEBSERVER__SECRET_KEY: {{ include "airflow.webserverSecretKey" . | quote }}
++  # User-defined config keys from values.yaml airflow.config
++  {{- range $key, $val := .Values.airflow.config }}
++  {{ $key }}: {{ $val | quote }}
++  {{- end }}
++  # Computed connection strings (derived from postgresql/redis values)
+   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: {{ include "airflow.postgresql.connection" . | quote }}
+   {{- if eq .Values.airflow.executor "CeleryExecutor" }}
+   AIRFLOW__CELERY__BROKER_URL: {{ include "airflow.redis.connection" . | quote }}
+   AIRFLOW__CELERY__RESULT_BACKEND: {{ printf "db+%s" (include "airflow.postgresql.connection" .) | quote }}
+   {{- end }}
+   {{- if eq .Values.airflow.executor "KubernetesExecutor" }}
+-  {{- if .Values.airflow.kubernetesExecutor.podTemplate.enabled }}
+-  AIRFLOW__KUBERNETES_EXECUTOR__POD_TEMPLATE_FILE: "/opt/airflow/config/pod_template.yaml"
+-  {{- end }}
+   AIRFLOW__KUBERNETES_EXECUTOR__NAMESPACE: {{ default .Release.Namespace .Values.airflow.kubernetesExecutor.namespace | quote }}
+   AIRFLOW__KUBERNETES_EXECUTOR__WORKER_CONTAINER_REPOSITORY: {{ default .Values.image.repository .Values.airflow.kubernetesExecutor.workerContainerRepository | quote }}
+   AIRFLOW__KUBERNETES_EXECUTOR__WORKER_CONTAINER_TAG: {{ default .Values.image.tag .Values.airflow.kubernetesExecutor.workerContainerTag | quote }}
+   AIRFLOW__KUBERNETES_EXECUTOR__DELETE_WORKER_PODS: {{ .Values.airflow.kubernetesExecutor.deleteWorkerPods | quote }}
+   AIRFLOW__KUBERNETES_EXECUTOR__DELETE_WORKER_PODS_ON_FAILURE: {{ .Values.airflow.kubernetesExecutor.deleteWorkerPodsOnFailure | quote }}
+   AIRFLOW__KUBERNETES_EXECUTOR__WORKER_PODS_CREATION_BATCH_SIZE: {{ .Values.airflow.kubernetesExecutor.workerPodsCreationBatchSize | quote }}
++  {{- if .Values.airflow.kubernetesExecutor.podTemplate.enabled }}
++  AIRFLOW__KUBERNETES_EXECUTOR__POD_TEMPLATE_FILE: "/opt/airflow/config/pod_template.yaml"
++  {{- end }}
+   {{- end }}
+ {{- end }}
+diff --git a/templates/scheduler.yaml b/templates/scheduler.yaml
+index 09be938..51afb21 100644
+--- a/templates/scheduler.yaml
++++ b/templates/scheduler.yaml
+@@ -36,6 +36,7 @@ spec:
+         {{- if .Values.airflow.externalAirflowCfg.enabled }}
+         {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
+         {{- end }}
++        {{- include "airflow.nasScriptsVolumeMount" . | nindent 8 }}
+         {{- if and (eq .Values.airflow.executor "KubernetesExecutor") .Values.airflow.kubernetesExecutor.podTemplate.enabled }}
+         - name: k8s-executor-pod-template
+           mountPath: /opt/airflow/config/pod_template.yaml
+@@ -74,4 +75,5 @@ spec:
+       {{- if .Values.airflow.externalAirflowCfg.enabled }}
+       {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
+       {{- end }}
++      {{- include "airflow.nasScriptsVolume" . | nindent 6 }}
+ {{- end }}
+diff --git a/templates/triggerer.yaml b/templates/triggerer.yaml
+index fe871b5..991b533 100644
+--- a/templates/triggerer.yaml
++++ b/templates/triggerer.yaml
+@@ -30,14 +30,26 @@ spec:
+         - configMapRef:
+             name: {{ include "airflow.fullname" . }}-config
+         {{- end }}
+-        {{- if .Values.airflow.externalAirflowCfg.enabled }}
+         volumeMounts:
++        {{- include "airflow.dagsVolumeMount" . | nindent 8 }}
++        {{- include "airflow.logsVolumeMount" . | nindent 8 }}
++        {{- if .Values.airflow.externalAirflowCfg.enabled }}
+         {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
+         {{- end }}
++        {{- include "airflow.nasScriptsVolumeMount" . | nindent 8 }}
+         resources:
+           {{- toYaml .Values.triggerer.resources | nindent 10 }}
+-      {{- if .Values.airflow.externalAirflowCfg.enabled }}
+       volumes:
++      {{- if .Values.dags.gitSync.enabled }}
++      - name: dags
++        emptyDir: {}
++      {{- else }}
++      {{- include "airflow.dagsVolume" . | nindent 6 }}
++      {{- end }}
++      {{- include "airflow.logsVolume" . | nindent 6 }}
++      {{- include "airflow.gitSyncVolume" . | nindent 6 }}
++      {{- if .Values.airflow.externalAirflowCfg.enabled }}
+       {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
+       {{- end }}
++      {{- include "airflow.nasScriptsVolume" . | nindent 6 }}
+ {{- end }}
+diff --git a/templates/webserver.yaml b/templates/webserver.yaml
+index b903563..2751b5c 100644
+--- a/templates/webserver.yaml
++++ b/templates/webserver.yaml
+@@ -40,6 +40,7 @@ spec:
+         {{- if .Values.airflow.externalAirflowCfg.enabled }}
+         {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
+         {{- end }}
++        {{- include "airflow.nasScriptsVolumeMount" . | nindent 8 }}
+         resources:
+           {{- toYaml .Values.webserver.resources | nindent 10 }}
+         {{- if .Values.webserver.livenessProbe.enabled }}
+@@ -75,6 +76,7 @@ spec:
+       {{- if .Values.airflow.externalAirflowCfg.enabled }}
+       {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
+       {{- end }}
++      {{- include "airflow.nasScriptsVolume" . | nindent 6 }}
+ ---
+ apiVersion: v1
+ kind: Service
+diff --git a/templates/worker.yaml b/templates/worker.yaml
+index 810311e..d57c02d 100644
+--- a/templates/worker.yaml
++++ b/templates/worker.yaml
+@@ -40,6 +40,7 @@ spec:
+         {{- if .Values.airflow.externalAirflowCfg.enabled }}
+         {{- include "airflow.externalAirflowCfgVolumeMount" . | nindent 8 }}
+         {{- end }}
++        {{- include "airflow.nasScriptsVolumeMount" . | nindent 8 }}
+         resources:
+           {{- toYaml .Values.workers.resources | nindent 10 }}
+         {{- if .Values.workers.livenessProbe.enabled }}
+@@ -67,4 +68,5 @@ spec:
+       {{- if .Values.airflow.externalAirflowCfg.enabled }}
+       {{- include "airflow.externalAirflowCfgVolume" . | nindent 6 }}
+       {{- end }}
++      {{- include "airflow.nasScriptsVolume" . | nindent 6 }}
+ {{- end }}
+diff --git a/values.yaml b/values.yaml
+index cabda3e..d31b6ab 100644
+--- a/values.yaml
++++ b/values.yaml
+@@ -16,7 +16,7 @@ image:
+ postgresql:
+   enabled: true
+   external: true
+-  
++
+   # ⚠️ CHANGE THIS to your host machine IP!
+   host: "192.168.1.100"
+   port: 5432
+@@ -60,19 +60,19 @@ airflow:
+     subPath: airflow.cfg
+     mountPath: /opt/airflow/airflow.cfg
+ 
++  # All AIRFLOW__* env vars injected into the ConfigMap.
++  # Add any Airflow setting here — no template changes needed.
+   config:
+-    AIRFLOW__CORE__EXECUTOR: "KubernetesExecutor"
+     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
++    AIRFLOW__CORE__TEST_CONNECTION: "Enabled"
+ 
+   # Kubernetes Executor settings (used only when executor is KubernetesExecutor)
+   kubernetesExecutor:
+-    # Namespace where task pods are created (default: same as release)
+-    namespace: ""  # Leave empty to use release namespace
+-    # Worker image (defaults to main airflow image if not set)
+-    workerContainerRepository: ""  # e.g. "dkatta26/diveshkattaregistry"
+-    workerContainerTag: ""         # e.g. "2.8.3"
++    namespace: ""                 # empty = release namespace
++    workerContainerRepository: "" # empty = image.repository
++    workerContainerTag: ""        # empty = image.tag
+     deleteWorkerPods: true
+     deleteWorkerPodsOnFailure: false
+     workerPodsCreationBatchSize: "4"  # Increase for better throughput
+@@ -91,24 +91,24 @@ dags:
+   # -----------------------------------------------------------------------------
+   gitSync:
+     enabled: false  # ← Set to 'true' to use Git-Sync
+-    
++
+     # For public repositories (HTTPS):
+     repo: "https://github.com/your-org/airflow-dags.git"
+     branch: "main"
+-    
++
+     # For private repositories (SSH) - uncomment and configure:
+     # repo: "git@github.com:your-org/airflow-dags.git"
+     # sshKeySecret: "airflow-git-ssh-key"  # Create secret first
+-    
++
+     # Git-sync settings:
+     rev: "HEAD"
+     depth: 1
+     wait: 60  # Sync interval in seconds
+     maxFailures: 3
+-    
++
+     # Subpath in repo (if DAGs are not in root):
+     subPath: ""  # e.g., "dags/" if your DAGs are in a subdirectory
+-    
++
+     # Resources for git-sync sidecar:
+     resources:
+       limits:
+@@ -117,53 +117,77 @@ dags:
+       requests:
+         cpu: 50m
+         memory: 64Mi
+-  
++
+   # -----------------------------------------------------------------------------
+   # METHOD 2: NFS (Recommended for Multi-Node + Filesystem Access)
+   # Easy to switch on/off - just change 'enabled: true/false'
+   # -----------------------------------------------------------------------------
+   nfs:
+     enabled: false  # ← Set to 'true' to use NFS
+-    
++
+     server: "nfs-server.example.com"  # ← Your NFS server hostname/IP
+     path: "/exports/airflow/dags"     # ← Path on NFS server
+-    
++
+     # Optional: NFS mount options
+     mountOptions:
+       - nfsvers=4
+       - rsize=1048576
+       - wsize=1048576
+-  
++
+   # -----------------------------------------------------------------------------
+   # METHOD 3: HostPath (Only for Single-Node Clusters)
+   # -----------------------------------------------------------------------------
+   hostPath:
+     enabled: false  # ← Set to 'true' for single-node with hostPath
+     path: "/opt/airflow/dags"  # Path on host machine
+-  
++
+   # -----------------------------------------------------------------------------
+   # METHOD 4: Persistent Volume Claim (Advanced)
+   # -----------------------------------------------------------------------------
+   persistentVolumeClaim:
+     enabled: false  # ← Set to 'true' to use existing PVC
+     existingClaim: ""  # Name of your PVC (must support ReadWriteMany)
++    subPath: ""        # Optional: subfolder inside the PVC (e.g. "dags" if sharing PVC with logs)
+ 
+ # =============================================================================
+ # LOGS STORAGE CONFIGURATION
+ # =============================================================================
++# ⚠️  With KubernetesExecutor, task pods are deleted after completion.
++#     If logs use emptyDir (default), they are LOST when the pod is deleted.
++#     Enable NFS or PVC below so logs survive pod deletion and remain readable
++#     in the Airflow UI.
++#
++# Choose ONE method. All Airflow components AND task pods share the same volume.
+ logs:
+-  # For multi-node, use NFS or leave as emptyDir
+-  # emptyDir = logs lost on pod restart (usually acceptable)
+-  
++  # METHOD 1: NFS (recommended for multi-node — logs persist after pod deletion)
+   nfs:
+     enabled: false  # ← Set to 'true' to store logs on NFS
+     server: "nfs-server.example.com"
+     path: "/exports/airflow/logs"
+-  
++
++  # METHOD 2: Existing PVC (ReadWriteMany required for multi-node)
++  persistentVolumeClaim:
++    enabled: false
++    existingClaim: ""  # PVC name (must exist in the release namespace)
++    subPath: ""        # Optional: subfolder inside the PVC (e.g. "logs" if sharing PVC with dags)
++
++  # METHOD 3: HostPath (single-node only)
+   hostPath:
+     enabled: false  # ← Set to 'true' for single-node
+     path: "/opt/airflow/logs"
+ 
++  # Default: emptyDir — logs are lost when a pod is deleted (not suitable for KubernetesExecutor)
++
++# =============================================================================
++# NAS CUSTOM SCRIPTS PVC
++# Mounts a NAS-backed PVC at /opt/data across all components and task pods.
++# =============================================================================
++nasScripts:
++  enabled: false
++  existingClaim: ""   # PVC name (must exist in the release namespace)
++  mountPath: /opt/data
++  readOnly: true
++
+ # =============================================================================
+ # SCHEDULER CONFIGURATION
+ # =============================================================================
+@@ -287,6 +311,35 @@ serviceAccount:
+ rbac:
+   create: true
+ 
++# =============================================================================
++# WORKER POD CLEANUP
++# Periodic CronJob to delete completed/failed KubernetesExecutor task pods.
++# Set deleteWorkerPods: false above to keep pods around, then use this to
++# clean them up on a schedule so you have time to inspect logs.
++# =============================================================================
++workerCleanup:
++  enabled: false
++  schedule: "*/10 * * * *"  # every 10 minutes — adjust to taste
++  deleteSucceeded: true      # delete pods in Succeeded phase
++  deleteFailed: false        # set true to also delete Failed pods (useful after inspection)
++  # Optional: restrict deletion to pods with this label selector.
++  # Airflow 2.x tags task pods with dag_id, task_id etc.
++  # Example: "dag_id=my_dag" or leave empty to clean all completed pods in the namespace.
++  podLabelSelector: ""
++  image:
++    repository: bitnami/kubectl
++    tag: "latest"
++    pullPolicy: IfNotPresent
++  successfulJobsHistoryLimit: 1
++  failedJobsHistoryLimit: 1
++  resources:
++    limits:
++      cpu: 100m
++      memory: 128Mi
++    requests:
++      cpu: 50m
++      memory: 64Mi
++
+ # =============================================================================
+ # DATABASE INITIALIZATION
+ # =============================================================================
+@@ -303,7 +356,7 @@ dbInit:
+ # =============================================================================
+ # EXAMPLES FOR DIFFERENT SCENARIOS
+ # =============================================================================
+-# 
++#
+ # SCENARIO 1: Use Git-Sync with public repo
+ # ------------------------------------------
+ # dags:

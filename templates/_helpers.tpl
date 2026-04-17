@@ -102,13 +102,12 @@ spec:
     - name: AIRFLOW__CORE__EXECUTOR
       value: LocalExecutor
     volumeMounts:
-    - name: dags
-      mountPath: /opt/airflow/dags
-    - name: logs
-      mountPath: /opt/airflow/logs
+{{ include "airflow.dagsVolumeMount" . | nindent 4 }}
+{{ include "airflow.logsVolumeMount" . | nindent 4 }}
 {{- if .Values.airflow.externalAirflowCfg.enabled }}
 {{ include "airflow.externalAirflowCfgVolumeMount" . | nindent 4 }}
 {{- end }}
+{{ include "airflow.nasScriptsVolumeMount" . | nindent 4 }}
   volumes:
 {{- if .Values.dags.gitSync.enabled }}
   - name: dags
@@ -120,6 +119,7 @@ spec:
 {{- if .Values.airflow.externalAirflowCfg.enabled }}
 {{ include "airflow.externalAirflowCfgVolume" . | nindent 2 }}
 {{- end }}
+{{ include "airflow.nasScriptsVolume" . | nindent 2 }}
 {{- end }}
 
 {{/*

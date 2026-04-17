@@ -30,6 +30,9 @@ DAG Volume Mount
 {{- define "airflow.dagsVolumeMount" -}}
 - name: dags
   mountPath: /opt/airflow/dags
+  {{- if and .Values.dags.persistentVolumeClaim.enabled .Values.dags.persistentVolumeClaim.subPath }}
+  subPath: {{ .Values.dags.persistentVolumeClaim.subPath }}
+  {{- end }}
 {{- end }}
 
 {{/*
@@ -41,6 +44,15 @@ Logs Volume Configuration
   hostPath:
     path: {{ .Values.logs.hostPath.path }}
     type: DirectoryOrCreate
+{{- else if .Values.logs.nfs.enabled }}
+- name: logs
+  nfs:
+    server: {{ .Values.logs.nfs.server }}
+    path: {{ .Values.logs.nfs.path }}
+{{- else if .Values.logs.persistentVolumeClaim.enabled }}
+- name: logs
+  persistentVolumeClaim:
+    claimName: {{ .Values.logs.persistentVolumeClaim.existingClaim | required "logs.persistentVolumeClaim.existingClaim is required when logs.persistentVolumeClaim.enabled is true" }}
 {{- else }}
 - name: logs
   emptyDir: {}
@@ -53,6 +65,9 @@ Logs Volume Mount
 {{- define "airflow.logsVolumeMount" -}}
 - name: logs
   mountPath: /opt/airflow/logs
+  {{- if and .Values.logs.persistentVolumeClaim.enabled .Values.logs.persistentVolumeClaim.subPath }}
+  subPath: {{ .Values.logs.persistentVolumeClaim.subPath }}
+  {{- end }}
 {{- end }}
 
 {{/*
@@ -125,5 +140,24 @@ NAS / PVC: pre-uploaded airflow.cfg (use with airflow.useConfigMapForEnv: false 
   mountPath: {{ .Values.airflow.externalAirflowCfg.mountPath | default "/opt/airflow/airflow.cfg" | quote }}
   subPath: {{ .Values.airflow.externalAirflowCfg.subPath | default "airflow.cfg" | quote }}
   readOnly: true
+{{- end }}
+{{- end }}
+
+{{/*
+NAS custom scripts PVC
+*/}}
+{{- define "airflow.nasScriptsVolume" -}}
+{{- if .Values.nasScripts.enabled }}
+- name: nas-scripts
+  persistentVolumeClaim:
+    claimName: {{ .Values.nasScripts.existingClaim | required "nasScripts.existingClaim is required when nasScripts.enabled is true" }}
+{{- end }}
+{{- end }}
+
+{{- define "airflow.nasScriptsVolumeMount" -}}
+{{- if .Values.nasScripts.enabled }}
+- name: nas-scripts
+  mountPath: {{ .Values.nasScripts.mountPath | default "/opt/data" | quote }}
+  readOnly: {{ .Values.nasScripts.readOnly | default true }}
 {{- end }}
 {{- end }}
