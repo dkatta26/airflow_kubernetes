@@ -1,0 +1,13 @@
+{{- if .Values.webserver.webserverConfigPy }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "airflow.fullname" . }}-webserver-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "airflow.labels" . | nindent 4 }}
+    component: webserver
+data:
+  webserver_config.py: |
+{{ .Values.webserver.webserverConfigPy | indent 4 }}
+{{- end }}

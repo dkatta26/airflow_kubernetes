@@ -1,8 +1,19 @@
 {{/*
-DAG Volume Configuration
-This template defines the volume for DAGs based on the selected method
+Shared PVC detection: true when both dags and logs use the same PVC claim.
+When shared, a single "shared-storage" volume is created and both mounts
+reference it with their respective subPaths — avoids duplicate PVC entries.
 */}}
+{{- define "airflow.isSharedPVC" -}}
+{{- if and .Values.dags.persistentVolumeClaim.enabled .Values.logs.persistentVolumeClaim.enabled }}
+{{- if eq (.Values.dags.persistentVolumeClaim.existingClaim | toString) (.Values.logs.persistentVolumeClaim.existingClaim | toString) }}
+true
+{{- end }}
+{{- end }}
+{{- end }}
 
+{{/*
+DAG Volume Configuration
+*/}}
 {{- define "airflow.dagsVolume" -}}
 {{- if .Values.dags.hostPath.enabled }}
 - name: dags
@@ -15,9 +26,15 @@ This template defines the volume for DAGs based on the selected method
     server: {{ .Values.dags.nfs.server }}
     path: {{ .Values.dags.nfs.path }}
 {{- else if .Values.dags.persistentVolumeClaim.enabled }}
+{{- if include "airflow.isSharedPVC" . }}
+- name: shared-storage
+  persistentVolumeClaim:
+    claimName: {{ .Values.dags.persistentVolumeClaim.existingClaim }}
+{{- else }}
 - name: dags
   persistentVolumeClaim:
     claimName: {{ .Values.dags.persistentVolumeClaim.existingClaim }}
+{{- end }}
 {{- else }}
 - name: dags
   emptyDir: {}
@@ -28,18 +45,26 @@ This template defines the volume for DAGs based on the selected method
 DAG Volume Mount
 */}}
 {{- define "airflow.dagsVolumeMount" -}}
+{{- if include "airflow.isSharedPVC" . }}
+- name: shared-storage
+  mountPath: /opt/airflow/dags
+  subPath: {{ .Values.dags.persistentVolumeClaim.subPath | required "dags.persistentVolumeClaim.subPath is required when sharing a PVC between dags and logs" }}
+{{- else }}
 - name: dags
   mountPath: /opt/airflow/dags
   {{- if and .Values.dags.persistentVolumeClaim.enabled .Values.dags.persistentVolumeClaim.subPath }}
   subPath: {{ .Values.dags.persistentVolumeClaim.subPath }}
   {{- end }}
 {{- end }}
+{{- end }}
 
 {{/*
 Logs Volume Configuration
 */}}
 {{- define "airflow.logsVolume" -}}
-{{- if .Values.logs.hostPath.enabled }}
+{{- if include "airflow.isSharedPVC" . }}
+{{- /* Shared PVC — volume already defined by dagsVolume as "shared-storage" */ -}}
+{{- else if .Values.logs.hostPath.enabled }}
 - name: logs
   hostPath:
     path: {{ .Values.logs.hostPath.path }}
@@ -63,11 +88,17 @@ Logs Volume Configuration
 Logs Volume Mount
 */}}
 {{- define "airflow.logsVolumeMount" -}}
+{{- if include "airflow.isSharedPVC" . }}
+- name: shared-storage
+  mountPath: /opt/airflow/logs
+  subPath: {{ .Values.logs.persistentVolumeClaim.subPath | required "logs.persistentVolumeClaim.subPath is required when sharing a PVC between dags and logs" }}
+{{- else }}
 - name: logs
   mountPath: /opt/airflow/logs
   {{- if and .Values.logs.persistentVolumeClaim.enabled .Values.logs.persistentVolumeClaim.subPath }}
   subPath: {{ .Values.logs.persistentVolumeClaim.subPath }}
   {{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
